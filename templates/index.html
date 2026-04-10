@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPCS - ISO Drawing Control System</title>
+    <!-- CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div id="globalLoader" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center; color: white; flex-direction: column; font-family: 'Inter', sans-serif;">
+        <i class="fas fa-spinner fa-spin fa-3x" style="margin-bottom: 15px;"></i>
+        <p>Fetching Drawing Data...</p>
+    </div>
+    
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                 <i class="fas fa-drafting-compass"></i> IPCS DRAWING
+             </div>
+             <div class="nav-links">
+                 <div class="section-title">Monitoring</div>
+                 <div class="nav-item active" data-target="dashboard"><i class="fas fa-chart-pie"></i> Status Dashboard</div>
+                 
+                 <div class="section-title">Data Management</div>
+                 <div class="nav-item" data-target="drawing_search"><i class="fas fa-search"></i> ISO Drawing Search</div>
+                 <div class="nav-item" data-target="revision_log"><i class="fas fa-history"></i> Revision History</div>
+             </div>
+         </aside>
+
+         <!-- Main Content -->
+         <main class="main-content">
+             <!-- Top Header -->
+             <div class="top-header">
+                 <div style="display: flex; flex-direction: column;">
+                    <div style="font-size: 20px; font-weight: 800; color: #0A2540; display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-blueprint" style="color: #0288d1;"></i> ISO DRAWING CONTROL SYSTEM
+                    </div>
+                </div>
+                 <div class="header-actions">
+                     <button class="btn btn-primary btn-small" id="btnRefresh"><i class="fas fa-sync-alt"></i> Sync with Supabase</button>
+                 </div>
+             </div>
+
+            <!-- 1. Dashboard -->
+            <section id="dashboard" class="view-section active">
+                 <div class="page-header">
+                     <div>
+                         <h1>Drawing Status Overview</h1>
+                         <p class="subtitle">Real-time statistics of project drawings.</p>
+                     </div>
+                 </div>
+                 
+                 <div class="kpi-grid">
+                     <div class="kpi-card highlight">
+                         <div class="kpi-info">
+                             <div class="kpi-title">Total Registered</div>
+                             <div class="kpi-value" id="kpi-total">0</div>
+                             <div class="kpi-desc">Total unique ISO drawings</div>
+                         </div>
+                         <div class="kpi-icon"><i class="fas fa-file-invoice"></i></div>
+                     </div>
+                     <div class="kpi-card">
+                         <div class="kpi-info">
+                             <div class="kpi-title">IFC Status</div>
+                             <div class="kpi-value" id="kpi-ifc">0</div>
+                             <div class="kpi-desc">Issued for Construction</div>
+                         </div>
+                         <div class="kpi-icon"><i class="fas fa-check-circle"></i></div>
+                     </div>
+                     <div class="kpi-card">
+                         <div class="kpi-info">
+                             <div class="kpi-title">In-Progress</div>
+                             <div class="kpi-value" id="kpi-pending">0</div>
+                             <div class="kpi-desc">Awaiting revision/approval</div>
+                         </div>
+                         <div class="kpi-icon"><i class="fas fa-clock"></i></div>
+                     </div>
+                 </div>
+
+                 <div class="dashboard-content-grid">
+                     <div class="panel chart-panel">
+                         <div class="panel-header"><h2>Unit/Area Distribution</h2></div>
+                         <div class="chart-container"><canvas id="drawingChart"></canvas></div>
+                     </div>
+                     <div class="panel">
+                         <div class="panel-header"><h2>Recent Updates</h2></div>
+                         <ul class="warning-list" id="recentUpdateList">
+                             <div class="empty-state-small">No recent activity detected.</div>
+                         </ul>
+                     </div>
+                 </div>
+            </section>
+
+             <!-- 2. Drawing Search Tab -->
+             <section id="drawing_search" class="view-section">
+                <div class="page-header">
+                     <div>
+                         <h1>ISO Drawing Search</h1>
+                         <p class="subtitle">Filter and master list of all project drawings.</p>
+                     </div>
+                 </div>
+                 <div class="panel filter-panel" style="margin-bottom: 20px;">
+                    <div style="display: flex; gap: 15px;">
+                        <input type="text" id="mainSearch" class="form-control" placeholder="Search by Drawing No, Service, or Area..." style="flex: 3;">
+                        <select id="areaFilter" class="form-control" style="flex: 1;"><option value="All">All Areas</option></select>
+                        <button class="btn btn-primary" id="btnFilterApply"><i class="fas fa-filter"></i> Apply</button>
+                    </div>
+                 </div>
+                 <div class="panel data-panel">
+                     <div class="table-responsive">
+                         <table class="data-table" id="drawingTable">
+                             <thead>
+                                 <tr>
+                                     <th>Drawing No</th>
+                                     <th>Service / Description</th>
+                                     <th>Area</th>
+                                     <th>Rev</th>
+                                     <th>State</th>
+                                     <th>Issue Date</th>
+                                 </tr>
+                             </thead>
+                             <tbody></tbody>
+                         </table>
+                     </div>
+                 </div>
+            </section>
+
+            <section id="revision_log" class="view-section">
+                <div class="page-header"><h1>Revision History</h1></div>
+                <div class="panel"><p>Log of all captured revision changes will be displayed here.</p></div>
+            </section>
+         </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
