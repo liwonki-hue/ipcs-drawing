@@ -49,7 +49,10 @@ async function fetchAllRows(tableName) {
 }
 
 async function syncData() {
-    if (!supabaseClient) return;
+    if (!supabaseClient) {
+        console.warn("Supabase client not initialized.");
+        return;
+    }
     showLoading(true);
     try {
         // Using 'drawing_master' as the default table name. Adjust if different in Supabase.
@@ -60,18 +63,45 @@ async function syncData() {
             description: d.description || d.title || '-',
             area: d.area || d.unit || 'General',
             rev: d.rev || d.revision || '0',
-            state: d.state || d.status || 'IFC',
+            state: (d.state || d.status || 'IFC').toUpperCase(),
             issueDate: d.issue_date || '-'
         }));
 
         updateDashboard();
         initFilters();
+        renderRecentUpdates();
         renderDrawingTable();
     } catch (e) {
         console.error("Sync failed:", e);
     } finally {
         showLoading(false);
     }
+}
+
+function renderRecentUpdates() {
+    const list = document.getElementById('recentUpdateList');
+    if (!list) return;
+    
+    // Sort by issueDate descending (assuming YYYY-MM-DD or similar) - take top 5
+    const latest = [...db.drawings]
+        .filter(d => d.issueDate && d.issueDate !== '-')
+        .sort((a, b) => b.issueDate.localeCompare(a.issueDate))
+        .slice(0, 5);
+
+    if (latest.length === 0) {
+        list.innerHTML = '<div class="empty-state-small">No recent activity detected.</div>';
+        return;
+    }
+
+    list.innerHTML = latest.map(d => `
+        <li class="warning-item ${d.state.includes('IFC') ? '' : 'alert-warn'}">
+            <div class="wi-icon"><i class="fas ${d.state.includes('IFC') ? 'fa-check-circle text-success' : 'fa-clock text-warning'}"></i></div>
+            <div class="wi-content">
+                <div class="wi-title">${d.dwgNo}</div>
+                <div class="wi-desc">Rev ${d.rev} | ${d.state} | Issued: ${d.issueDate}</div>
+            </div>
+        </li>
+    `).join('');
 }
 
 function updateDashboard() {
@@ -118,9 +148,17 @@ function initFilters() {
     }
 }
 
+let drawingDataTable = null;
 function renderDrawingTable() {
-    const tbody = document.querySelector('#drawingTable tbody');
+    const tableId = '#drawingTable';
+    const tbody = document.querySelector(`${tableId} tbody`);
     if (!tbody) return;
+
+    // Destroy existing DataTable if it exists
+    if ($.fn.DataTable.isDataTable(tableId)) {
+        $(tableId).DataTable().destroy();
+    }
+    
     tbody.innerHTML = '';
 
     const searchTerm = document.getElementById('mainSearch').value.toLowerCase();
@@ -128,8 +166,8 @@ function renderDrawingTable() {
 
     const filtered = db.drawings.filter(d => {
         const matchesSearch = !searchTerm || 
-            d.dwgNo.toLowerCase().includes(searchTerm) || 
-            d.description.toLowerCase().includes(searchTerm);
+            (d.dwgNo && d.dwgNo.toLowerCase().includes(searchTerm)) || 
+            (d.description && d.description.toLowerCase().includes(searchTerm));
         const matchesArea = areaFilter === 'All' || d.area === areaFilter;
         return matchesSearch && matchesArea;
     });
@@ -144,6 +182,17 @@ function renderDrawingTable() {
             <td>${d.issueDate}</td>
         </tr>`;
         tbody.innerHTML += tr;
+    });
+
+    // Initialize DataTable for better experience
+    drawingDataTable = $(tableId).DataTable({
+        pageLength: 25,
+        order: [[5, 'desc']], // Sort by issue date by default
+        language: {
+            search: "_INPUT_",
+            searchPlaceholder: "Search within results..."
+        },
+        dom: 'rtip' // Hide the default search box since we have our own
     });
 }
 

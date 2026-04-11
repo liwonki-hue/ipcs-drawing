@@ -1,2 +1,7 @@
 flask
+supabase
+pandas
+openpyxl
+xlsxwriter
+python-dotenv
 gunicorn
