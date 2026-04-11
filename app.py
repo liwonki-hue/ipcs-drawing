@@ -214,7 +214,7 @@ def print_drawings():
                 #print-main {{ background: #fff; padding: 20px; width: 96%; margin: 0 auto; box-shadow: 0 0 15px rgba(0,0,0,0.05); }}
                 h2 {{ text-align: center; margin-bottom: 10px; font-size: 15px; font-weight: 600; color: #1e293b; }}
                 .meta {{ text-align: right; margin-bottom: 5px; font-size: 7px; color: #64748b; }}
-                <table> {{ width: 100%; border-collapse: collapse; border: 0.5px solid #94a3b8; }}
+                table {{ width: 100%; border-collapse: collapse; border: 0.5px solid #94a3b8; }}
                 th, td {{ border: 0.4px solid #cbd5e1; padding: 4px 6px; text-align: center !important; }}
                 th {{ background-color: #f1f5f9; font-weight: 600; text-transform: uppercase; }}
                 .col-dwg {{ color: #2563eb; font-weight: 500; text-decoration: none; }}
