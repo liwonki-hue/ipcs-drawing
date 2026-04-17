@@ -210,7 +210,7 @@ def main():
                 },
                 use_container_width=True,
                 hide_index=True,
-                height=650 # Increased to eliminate scrollbar for 17 rows
+                height=None # Automatic height adjustment to remove empty rows
             )
 
             # Footer Pagination
