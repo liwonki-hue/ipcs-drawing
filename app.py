@@ -58,14 +58,23 @@ st.markdown("""
             line-height: 1.2 !important;
         }
         
-        /* Tab Styling */
-        .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-        .stTabs [data-baseweb="tab"] {
-            padding: 8px 16px !important;
-            font-size: 0.85rem !important;
-            border-radius: 6px 6px 0 0;
+        /* Tab Styling - Right Aligned & Blue Theme */
+        [data-testid="stTabPanel"] [role="tablist"] {
+            justify-content: flex-end !important;
         }
-        
+        button[data-testid="stTab"] {
+            height: 35px !important;
+            padding: 0px 10px !important;
+            font-size: 11px !important;
+        }
+        button[data-testid="stTab"][aria-selected="true"] {
+            color: #0b5394 !important;
+            border-bottom: 2px solid #0b5394 !important;
+        }
+        button[data-testid="stTab"][aria-selected="true"] p {
+            color: #0b5394 !important;
+        }
+
         /* Data Table Height & Spacing - Minimized Gap */
         .stDataFrame {
             margin-top: -25px !important; /* Minimized even further */
