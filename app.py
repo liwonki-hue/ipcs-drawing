@@ -21,19 +21,9 @@ st.set_page_config(
 # Refined Professional Compact UI
 st.markdown("""
     <style>
-        .block-container {
-            padding-top: 3.5rem !important;
-            padding-bottom: 1rem !important;
-        }
-        h1 {
-            font-size: 1.8rem !important;
-            font-weight: 700 !important;
-            margin-bottom: 0.8rem !important;
-            color: #1e293b;
-        }
-        .main {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-        }
+        .block-container { padding-top: 3.5rem !important; padding-bottom: 1rem !important; }
+        h1 { font-size: 1.8rem !important; font-weight: 700 !important; margin-bottom: 0.8rem !important; color: #1e293b; }
+        .main { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
         [data-testid="stMetric"] {
             background: rgba(255, 255, 255, 0.7);
             padding: 8px 12px !important;
@@ -42,18 +32,8 @@ st.markdown("""
             backdrop-filter: blur(4px);
             border: 1px solid rgba(255, 255, 255, 0.3);
         }
-        [data-testid="stMetricLabel"] {
-            font-size: 0.7rem !important;
-            color: #64748b !important;
-            margin-bottom: -10px !important;
-            line-height: 1 !important;
-        }
-        [data-testid="stMetricValue"] {
-            font-size: 1.3rem !important;
-            font-weight: 700 !important;
-            color: #0f172a !important;
-            line-height: 1.1 !important;
-        }
+        [data-testid="stMetricLabel"] { font-size: 0.7rem !important; color: #64748b !important; margin-bottom: -10px !important; line-height: 1 !important; }
+        [data-testid="stMetricValue"] { font-size: 1.3rem !important; font-weight: 700 !important; color: #0f172a !important; line-height: 1.1 !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -63,9 +43,6 @@ def get_secret(key, default=None):
     except:
         return os.environ.get(key, default)
 
-# ==========================================
-# 2. Data Logic & Caching
-# ==========================================
 @st.cache_resource
 def get_supabase() -> Client:
     url = get_secret("SUPABASE_URL")
@@ -131,7 +108,7 @@ def main():
         system_filter = st.selectbox("System", ["All", "AS", "ATM", "CCW", "CD", "DW", "FG", "FGH", "FO", "FW", "GT MISC", "HP", "HW", "IA", "LO", "LP", "N2", "PW", "RW", "SA", "SS", "ST MISC", "SW", "WWT"])
         status_filter = st.selectbox("Revision", ["All", "C01", "C01A", "C01B"])
         st.markdown("---")
-        st.info("IPCS Cloud draws data from Supabase.")
+        st.info("IPCS Cloud synced.")
 
     stats = get_cached_stats()
     cols = st.columns(4)
@@ -150,36 +127,27 @@ def main():
         if data:
             df = pd.DataFrame(data)
             
-            # Create a URL column for the drawing link
-            def make_link(row):
+            # Optimization: Transform Drawing No into a clickable link
+            def create_link_with_id(row):
                 fk = str(row.get('file_link', '')).strip()
-                return get_cloudinary_url(fk) if fk else None
+                dwg = str(row.get('drawing_no', '')).strip()
+                if fk:
+                    url = get_cloudinary_url(fk)
+                    # We append the drawing number as a hash fragment to extract it later via regex
+                    return f"{url}#{dwg}"
+                return dwg
+
+            df['drawing_link'] = df.apply(create_link_with_id, axis=1)
             
-            df['view_url'] = df.apply(make_link, axis=1)
-            
-            # Reorder columns and define column config
-            display_cols = {
-                "drawing_no": "Drawing No.", # This will be the link
-                "revision": "Rev.",
-                "area": "Area",
-                "system": "System",
-                "title": "Drawing Title",
-                "issued_date": "Issued Date"
-            }
-            
-            # Using st.column_config.LinkColumn for Drawing No.
-            # We map the drawing_no to the view_url
             st.dataframe(
                 df,
-                column_order=("drawing_no", "revision", "area", "system", "title", "issued_date"),
+                column_order=("drawing_link", "revision", "area", "system", "title", "issued_date"),
                 column_config={
-                    "drawing_no": st.column_config.LinkColumn(
+                    "drawing_link": st.column_config.LinkColumn(
                         "Drawing No.",
-                        help="Click to open drawing in Cloudinary",
-                        validate=r"^http",
-                        display_text=None, # if None, it shows the value of the cell (drawing_no)
-                        # We use metadata to pass the actual URL
-                        url_name="view_url"
+                        help="Click to open drawing",
+                        # Extracts only the drawing number after the '#' sign
+                        display_text=r"#(.+)$"
                     ),
                     "revision": "Rev.",
                     "area": "Area",
@@ -200,7 +168,7 @@ def main():
             if st.session_state.page < total_pages and p_cols[2].button("Next"):
                 st.session_state.page += 1
                 st.rerun()
-            p_cols[1].markdown(f"<center><small>Page {st.session_state.page} of {total_pages} ({total_count} records)</small></center>", unsafe_allow_html=True)
+            p_cols[1].markdown(f"<center><small>Page {st.session_state.page} of {total_pages}</small></center>", unsafe_allow_html=True)
         else:
             st.warning("No data found.")
 
