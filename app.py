@@ -210,7 +210,7 @@ def main():
                 },
                 use_container_width=True,
                 hide_index=True,
-                height=None # Automatic height adjustment to remove empty rows
+                height=600 # Precision height for 17 rows to avoid empty space and crash
             )
 
             # Footer Pagination
