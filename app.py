@@ -166,8 +166,8 @@ def main():
     tab_list, tab_upload, tab_export = st.tabs(["📋 Drawing List", "📤 Upload Data", "📥 Export & Reports"])
 
     with tab_list:
-        # Adjusted to exactly 14 rows per view
-        per_page = 14
+        # Adjusted to exactly 15 rows per view
+        per_page = 15
         if 'page' not in st.session_state: st.session_state.page = 1
         data, total_count = fetch_data(search_query, area_filter, system_filter, status_filter, limit=per_page, offset=(st.session_state.page - 1) * per_page)
         
@@ -185,6 +185,9 @@ def main():
 
             df['drawing_link'] = df.apply(create_link_with_id, axis=1)
             
+            # CSS hack to reduce font size inside the dataframe
+            st.markdown("<style>div[data-testid='stDataFrame'] { font-size: 11px !important; }</style>", unsafe_allow_html=True)
+
             st.dataframe(
                 df,
                 column_order=("drawing_link", "revision", "area", "system", "title", "issued_date"),
@@ -203,7 +206,7 @@ def main():
                 },
                 use_container_width=True,
                 hide_index=True,
-                height=530 # Optimized height for exactly 14 rows
+                height=565 # Optimized height for exactly 15 rows with smaller font
             )
 
             # Footer Pagination
