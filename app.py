@@ -66,9 +66,9 @@ st.markdown("""
             border-radius: 6px 6px 0 0;
         }
         
-        /* Data Table Height & Spacing */
+        /* Data Table Height & Spacing - Minimized Gap */
         .stDataFrame {
-            margin-top: 10px;
+            margin-top: -25px !important; /* Minimized even further */
         }
 
         /* Force Center Alignment for Dataframe Headers */
@@ -76,10 +76,14 @@ st.markdown("""
             justify-content: center !important;
             text-align: center !important;
         }
-        [data-testid="stDataFrame"] div[role="columnheader"] span {
-            text-align: center !important;
-            width: 100% !important;
+
+        /* Remove default padding from tab panels */
+        [data-testid="stTabPanel"] {
+            padding-top: 0px !important;
         }
+        
+        /* Reduce global block gap */
+        .stVerticalBlock { gap: 0.2rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
