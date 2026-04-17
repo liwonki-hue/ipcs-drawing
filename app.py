@@ -21,25 +21,19 @@ st.set_page_config(
 # Refined Professional Compact UI
 st.markdown("""
     <style>
-        /* Adjust Top Padding to prevent clipping with Streamlit header */
         .block-container {
             padding-top: 3.5rem !important;
             padding-bottom: 1rem !important;
         }
-        
-        /* Professional Compact Title */
         h1 {
             font-size: 1.8rem !important;
             font-weight: 700 !important;
             margin-bottom: 0.8rem !important;
             color: #1e293b;
         }
-        
         .main {
             background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
         }
-        
-        /* Dashboard KPI Cards - Compact with narrow line spacing */
         [data-testid="stMetric"] {
             background: rgba(255, 255, 255, 0.7);
             padding: 8px 12px !important;
@@ -60,22 +54,10 @@ st.markdown("""
             color: #0f172a !important;
             line-height: 1.1 !important;
         }
-        
-        /* Sidebar Polish */
-        .sidebar .sidebar-content {
-            background: #f1f5f9;
-        }
-        
-        .stButton>button {
-            border-radius: 4px;
-            font-weight: 600;
-        }
     </style>
 """, unsafe_allow_html=True)
 
-# Initialize Secrets Helper
 def get_secret(key, default=None):
-    """Helper to get secret from st.secrets or os.environ"""
     try:
         return st.secrets[key]
     except:
@@ -89,7 +71,7 @@ def get_supabase() -> Client:
     url = get_secret("SUPABASE_URL")
     key = get_secret("SUPABASE_KEY")
     if not url or not key:
-        st.error("Missing Supabase configuration (SUPABASE_URL/KEY)")
+        st.error("Missing Supabase configuration")
         st.stop()
     options = ClientOptions(schema="public")
     return create_client(url, key, options=options)
@@ -98,11 +80,9 @@ def get_supabase() -> Client:
 c_name = get_secret("CLOUDINARY_NAME")
 c_key = get_secret("CLOUDINARY_API_KEY")
 c_secret = get_secret("CLOUDINARY_API_SECRET")
-
 if all([c_name, c_key, c_secret]):
     cloudinary.config(cloud_name=c_name, api_key=c_key, api_secret=c_secret, secure=True)
 
-# Constants
 TABLE_ALL = "dwg_iso"
 TABLE_LATEST = "dwg_latest"
 
@@ -144,17 +124,15 @@ def get_cloudinary_url(file_key):
 def main():
     st.title("🏗️ IPCS Drawing Management System")
 
-    # --- Sidebar Filters (Restored as requested) ---
     with st.sidebar:
         st.header("Search & Filters")
-        search_query = st.text_input("🔍 Keyword Search", placeholder="Drawing No, Title...", label_visibility="visible")
+        search_query = st.text_input("🔍 Keyword Search", placeholder="Drawing No, Title...")
         area_filter = st.selectbox("Area", ["All", "MB", "YARD", "YD BLDG"])
         system_filter = st.selectbox("System", ["All", "AS", "ATM", "CCW", "CD", "DW", "FG", "FGH", "FO", "FW", "GT MISC", "HP", "HW", "IA", "LO", "LP", "N2", "PW", "RW", "SA", "SS", "ST MISC", "SW", "WWT"])
         status_filter = st.selectbox("Revision", ["All", "C01", "C01A", "C01B"])
         st.markdown("---")
         st.info("IPCS Cloud draws data from Supabase.")
 
-    # --- KPI Dashboard ---
     stats = get_cached_stats()
     cols = st.columns(4)
     cols[0].metric("Total Drawings", f"{stats['Total']:,}")
@@ -162,42 +140,66 @@ def main():
     cols[2].metric("Revision C01A", f"{stats['C01A']:,}")
     cols[3].metric("Revision C01B", f"{stats['C01B']:,}")
 
-    # --- Main Content Tabs ---
     tab_list, tab_upload, tab_export = st.tabs(["📋 Drawing List", "📤 Upload Data", "📥 Export & Reports"])
 
     with tab_list:
         per_page = 50
         if 'page' not in st.session_state: st.session_state.page = 1
-            
         data, total_count = fetch_data(search_query, area_filter, system_filter, status_filter, limit=per_page, offset=(st.session_state.page - 1) * per_page)
         
         if data:
             df = pd.DataFrame(data)
-            display_cols = {"drawing_no": "Drawing No.", "revision": "Rev.", "area": "Area", "system": "System", "title": "Drawing Title", "issued_date": "Issued Date"}
-            available_cols = [c for c in display_cols.keys() if c in df.columns]
             
-            selected_rows = st.dataframe(df[available_cols].rename(columns=display_cols), use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
+            # Create a URL column for the drawing link
+            def make_link(row):
+                fk = str(row.get('file_link', '')).strip()
+                return get_cloudinary_url(fk) if fk else None
             
-            if selected_rows.selection.rows:
-                idx = selected_rows.selection.rows[0]
-                row = df.iloc[idx]
-                st.info(f"📍 Selected: {row['drawing_no']}")
-                file_link = str(row.get('file_link', '')).strip()
-                if file_link:
-                    cloud_url = get_cloudinary_url(file_link)
-                    st.link_button("📂 View Drawing (Cloudinary)", cloud_url, type="primary")
+            df['view_url'] = df.apply(make_link, axis=1)
+            
+            # Reorder columns and define column config
+            display_cols = {
+                "drawing_no": "Drawing No.", # This will be the link
+                "revision": "Rev.",
+                "area": "Area",
+                "system": "System",
+                "title": "Drawing Title",
+                "issued_date": "Issued Date"
+            }
+            
+            # Using st.column_config.LinkColumn for Drawing No.
+            # We map the drawing_no to the view_url
+            st.dataframe(
+                df,
+                column_order=("drawing_no", "revision", "area", "system", "title", "issued_date"),
+                column_config={
+                    "drawing_no": st.column_config.LinkColumn(
+                        "Drawing No.",
+                        help="Click to open drawing in Cloudinary",
+                        validate=r"^http",
+                        display_text=None, # if None, it shows the value of the cell (drawing_no)
+                        # We use metadata to pass the actual URL
+                        url_name="view_url"
+                    ),
+                    "revision": "Rev.",
+                    "area": "Area",
+                    "system": "System",
+                    "title": "Drawing Title",
+                    "issued_date": "Issued Date"
+                },
+                use_container_width=True,
+                hide_index=True
+            )
 
             # Pagination
             total_pages = (total_count + per_page - 1) // per_page
             p_cols = st.columns([1, 2, 1])
-            if st.session_state.page > 1:
-                if p_cols[0].button("Previous"):
-                    st.session_state.page -= 1
-                    st.rerun()
-            if st.session_state.page < total_pages:
-                if p_cols[2].button("Next"):
-                    st.session_state.page += 1
-                    st.rerun()
+            if st.session_state.page > 1 and p_cols[0].button("Previous"):
+                st.session_state.page -= 1
+                st.rerun()
+            if st.session_state.page < total_pages and p_cols[2].button("Next"):
+                st.session_state.page += 1
+                st.rerun()
             p_cols[1].markdown(f"<center><small>Page {st.session_state.page} of {total_pages} ({total_count} records)</small></center>", unsafe_allow_html=True)
         else:
             st.warning("No data found.")
@@ -213,8 +215,7 @@ def main():
                     records = []
                     for _, r in df_up.iterrows():
                         dr_no = str(r.get("drawing_no", r.get("drawing_n", ""))).strip()
-                        if dr_no:
-                            records.append({"drawing_no": dr_no, "line_no": str(r.get("line_no", "")).strip(), "system": str(r.get("system", "")).strip(), "area": str(r.get("area", "")).strip(), "bore": str(r.get("bore", "")).strip(), "title": str(r.get("title", "")).strip(), "revision": str(r.get("revision", "")).strip(), "file_link": str(r.get("file_link", "")).strip()})
+                        if dr_no: records.append({"drawing_no": dr_no, "line_no": str(r.get("line_no", "")).strip(), "system": str(r.get("system", "")).strip(), "area": str(r.get("area", "")).strip(), "bore": str(r.get("bore", "")).strip(), "title": str(r.get("title", "")).strip(), "revision": str(r.get("revision", "")).strip(), "file_link": str(r.get("file_link", "")).strip()})
                     if records:
                         supabase = get_supabase()
                         for i in range(0, len(records), 1000):
