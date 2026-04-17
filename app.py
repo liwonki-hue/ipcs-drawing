@@ -70,6 +70,16 @@ st.markdown("""
         .stDataFrame {
             margin-top: 10px;
         }
+
+        /* Force Center Alignment for Dataframe Headers */
+        [data-testid="stDataFrame"] div[role="columnheader"] > div {
+            justify-content: center !important;
+            text-align: center !important;
+        }
+        [data-testid="stDataFrame"] div[role="columnheader"] span {
+            text-align: center !important;
+            width: 100% !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
