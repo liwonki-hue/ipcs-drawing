@@ -59,7 +59,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Initialize Supabase and Cloudinary
+# Initialize Secrets Helper
 def get_secret(key, default=None):
     """Helper to get secret from st.secrets or os.environ"""
     try:
@@ -67,13 +67,18 @@ def get_secret(key, default=None):
     except:
         return os.environ.get(key, default)
 
+# ==========================================
+# 2. Data Logic & Caching
+# ==========================================
+@st.cache_resource
 def get_supabase() -> Client:
     url = get_secret("SUPABASE_URL")
     key = get_secret("SUPABASE_KEY")
     if not url or not key:
         st.error("Missing Supabase configuration (SUPABASE_URL/KEY)")
         st.stop()
-    options = ClientOptions(schema="drawing")
+    # Updated: Using 'public' schema as per user's database configuration
+    options = ClientOptions(schema="public")
     return create_client(url, key, options=options)
 
 # Configure Cloudinary
@@ -94,19 +99,6 @@ else:
 # Constants
 TABLE_ALL = "dwg_iso"
 TABLE_LATEST = "dwg_latest"
-
-# ==========================================
-# 2. Data Logic & Caching
-# ==========================================
-@st.cache_resource
-def get_supabase() -> Client:
-    url = get_secret("SUPABASE_URL")
-    key = get_secret("SUPABASE_KEY")
-    if not url or not key:
-        st.error("Missing Supabase configuration (SUPABASE_URL/KEY)")
-        st.stop()
-    options = ClientOptions(schema="drawing")
-    return create_client(url, key, options=options)
 
 @st.cache_data(ttl=600, show_spinner=False)
 def get_cached_stats():
