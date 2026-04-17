@@ -1,290 +1,332 @@
-import os
-import re
-import io
+import streamlit as st
 import pandas as pd
+import io
+import os
+import cloudinary
+import cloudinary.uploader
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request, send_file
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
+from concurrent.futures import ThreadPoolExecutor
 
-# ── [.env 파일을 직접 읽어오는 로직] ──
-def load_env_manually():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    env_path = os.path.join(base_dir, ".env")
-    if os.path.exists(env_path):
-        with open(env_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"): continue
-                if "=" in line:
-                    try:
-                        key, val = line.split("=", 1)
-                        os.environ[key.strip()] = val.strip()
-                    except: continue
+# ==========================================
+# 1. Configuration & Secrets
+# ==========================================
+st.set_page_config(
+    page_title="IPCS Drawing Management",
+    page_icon="🏗️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-load_env_manually()
+# Premium UI Styling
+st.markdown("""
+    <style>
+        .main {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        }
+        .stMetric {
+            background: rgba(255, 255, 255, 0.7);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .stButton>button {
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .stButton>button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 24px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: 50px;
+            white-space: pre-wrap;
+            background-color: transparent;
+            border-radius: 4px;
+            color: #64748b;
+            font-weight: 500;
+        }
+        .stTabs [aria-selected="true"] {
+            color: #2563eb !important;
+            border-bottom: 2px solid #2563eb !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
-template_dir = os.path.abspath(os.path.dirname(__file__))
-app = Flask(__name__, template_folder=template_dir, static_folder=template_dir)
+# Initialize Supabase and Cloudinary
+def get_secret(key, default=None):
+    """Helper to get secret from st.secrets or os.environ"""
+    try:
+        return st.secrets[key]
+    except:
+        return os.environ.get(key, default)
 
-from jinja2 import ChoiceLoader, FileSystemLoader
-app.jinja_loader = ChoiceLoader([
-    FileSystemLoader(template_dir),
-    FileSystemLoader(os.path.join(template_dir, "templates"))
-])
-app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-TABLE = "dwg_iso"
-
-def get_client() -> Client:
-    # Render 환경변수 우선 사용
-    url = os.environ.get("SUPABASE_URL") or SUPABASE_URL
-    key = os.environ.get("SUPABASE_KEY") or SUPABASE_KEY
+def get_supabase() -> Client:
+    url = get_secret("SUPABASE_URL")
+    key = get_secret("SUPABASE_KEY")
     if not url or not key:
-        raise ValueError("SUPABASE_URL, SUPABASE_KEY를 확인하세요.")
-    return create_client(url, key)
+        st.error("Missing Supabase configuration (SUPABASE_URL/KEY)")
+        st.stop()
+    options = ClientOptions(schema="drawing")
+    return create_client(url, key, options=options)
 
-@app.route("/")
-def index():
-    return render_template("index.html")
+# Configure Cloudinary
+c_name = get_secret("CLOUDINARY_NAME")
+c_key = get_secret("CLOUDINARY_API_KEY")
+c_secret = get_secret("CLOUDINARY_API_SECRET")
 
-@app.route("/api/drawings")
-def get_drawings():
-    try:
-        search = request.args.get("search", "").strip()
-        area = request.args.get("area", "")
-        system = request.args.get("system", "")
-        status = request.args.get("status", "")
-        page = int(request.args.get("page", 1))
-        per_page = int(request.args.get("per_page", 150))
-        offset = (page - 1) * per_page
+if all([c_name, c_key, c_secret]):
+    cloudinary.config(
+        cloud_name = c_name,
+        api_key = c_key,
+        api_secret = c_secret,
+        secure = True
+    )
+else:
+    st.warning("Cloudinary configuration incomplete. Media features may be limited.")
 
-        supabase = get_client()
-        target_table = "dwg_latest" if not status else TABLE
-        query = supabase.table(target_table).select("*", count="exact")
+# Constants
+TABLE_ALL = "dwg_iso"
+TABLE_LATEST = "dwg_latest"
+
+# ==========================================
+# 2. Data Logic & Caching
+# ==========================================
+@st.cache_resource
+def get_supabase() -> Client:
+    url = get_secret("SUPABASE_URL")
+    key = get_secret("SUPABASE_KEY")
+    if not url or not key:
+        st.error("Missing Supabase configuration (SUPABASE_URL/KEY)")
+        st.stop()
+    options = ClientOptions(schema="drawing")
+    return create_client(url, key, options=options)
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_cached_stats():
+    """Cache statistics for 10 minutes to reduce DB load"""
+    supabase = get_supabase()
+    total_res = supabase.table(TABLE_ALL).select("id", count="exact").limit(1).execute()
+    c01_res   = supabase.table(TABLE_ALL).select("id", count="exact").eq("revision", "C01").execute()
+    c01a_res  = supabase.table(TABLE_ALL).select("id", count="exact").eq("revision", "C01A").execute()
+    c01b_res  = supabase.table(TABLE_ALL).select("id", count="exact").eq("revision", "C01B").execute()
+    
+    return {
+        "Total": total_res.count if hasattr(total_res, 'count') else 0,
+        "C01": c01_res.count if hasattr(c01_res, 'count') else 0,
+        "C01A": c01a_res.count if hasattr(c01a_res, 'count') else 0,
+        "C01B": c01b_res.count if hasattr(c01b_res, 'count') else 0
+    }
+
+@st.cache_data(ttl=300, show_spinner="Fetching drawing list...")
+def fetch_data(search_query="", area="All", system="All", status="All", limit=150, offset=0):
+    """Cache query results for 5 minutes"""
+    supabase = get_supabase()
+    target_table = TABLE_LATEST if status == "All" else TABLE_ALL
+    
+    query = supabase.table(target_table).select("*", count="exact")
+    
+    if search_query:
+        # Optimization: prioritize exact match on drawing_no for performance
+        query = query.or_(f"drawing_no.ilike.%{search_query}%,line_no.ilike.%{search_query}%,title.ilike.%{search_query}%")
+    if area != "All":
+        query = query.eq("area", area)
+    if system != "All":
+        query = query.eq("system", system)
+    if status != "All":
+        query = query.eq("revision", status)
         
-        if search:
-            query = query.or_(f"drawing_no.ilike.%{search}%,line_no.ilike.%{search}%,title.ilike.%{search}%")
-        if area: query = query.eq("area", area)
-        if system: query = query.eq("system", system)
-        if status: query = query.eq("revision", status)
+    res = query.order("drawing_no").range(offset, offset + limit - 1).execute()
+    return res.data, res.count
 
-        res = query.order("drawing_no").range(offset, offset + per_page - 1).execute()
-        return jsonify({"data": res.data, "total": res.count, "page": page})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+def get_cloudinary_url(file_key):
+    """Generate optimized Cloudinary URL for PDF/Image streaming"""
+    if not file_key: return None
+    if file_key.startswith("http"): return file_key
+    # Assuming file_key is public_id in Cloudinary
+    return cloudinary.utils.cloudinary_url(file_key, resource_type="image", secure=True)[0]
 
-@app.route("/api/stats")
-def get_stats():
-    try:
-        supabase = get_client()
-        total_res = supabase.table(TABLE).select("id", count="exact").limit(1).execute()
-        c01_res   = supabase.table(TABLE).select("id", count="exact").eq("revision", "C01").execute()
-        c01a_res  = supabase.table(TABLE).select("id", count="exact").eq("revision", "C01A").execute()
-        c01b_res  = supabase.table(TABLE).select("id", count="exact").eq("revision", "C01B").execute()
-        return jsonify({
-            "total": total_res.count if hasattr(total_res, 'count') else 0, 
-            "C01":   c01_res.count if hasattr(c01_res, 'count') else 0,
-            "C01A":  c01a_res.count if hasattr(c01a_res, 'count') else 0,
-            "C01B":  c01b_res.count if hasattr(c01b_res, 'count') else 0
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+def view_pdf_component(url):
+    """Embed PDF viewer using an iframe for streaming-like experience"""
+    st.markdown(f'<iframe src="{url}" width="100%" height="800px" style="border:none;"></iframe>', unsafe_allow_html=True)
 
-@app.route("/api/filters")
-def get_filters():
-    return jsonify({
-        "areas": ["MB", "YARD", "YD BLDG"],
-        "systems": ["AS", "ATM", "CCW", "CD", "DW", "FG", "FGH", "FO", "FW", "GT MISC", "HP", "HW", "IA", "LO", "LP", "N2", "PW", "RW", "SA", "SS", "ST MISC", "SW", "WWT"],
-        "statuses": ["C01", "C01A", "C01B"]
-    })
+# ==========================================
+# 3. UI Components
+# ==========================================
+def main():
+    st.title("🏗️ IPCS Drawing Management System")
+    st.markdown("---")
 
-@app.route("/api/upload", methods=["POST"])
-def upload_excel():
-    try:
-        file = request.files["file"]
-        if not file: return jsonify({"error": "No file shared"}), 400
-        df = pd.read_excel(io.BytesIO(file.read()), sheet_name=0)
-        df.columns = [str(c).lower().strip() for c in df.columns]
-        df = df.fillna("")
-        records = df.to_dict("records")
-        supabase = get_client()
-        batch = []
-        for r in records:
-            dr_no = str(r.get("drawing_no", r.get("drawing_n", ""))).strip()
-            if not dr_no: continue
-            batch.append({
-                "drawing_no": dr_no,
-                "line_no":    str(r.get("line_no", "")).strip(),
-                "system":     str(r.get("system", "")).strip(),
-                "area":       str(r.get("area", "")).strip(),
-                "bore":       str(r.get("bore", "")).strip(),
-                "title":      str(r.get("title", "")).strip(),
-                "revision":   str(r.get("revision", "")).strip(),
-                "file_link":  str(r.get("file_link", "")).strip()
-            })
-        inserted_count = 0
-        if batch:
-            for i in range(0, len(batch), 1000):
-                chunk = batch[i:i+1000]
-                supabase.table(TABLE).upsert(chunk, on_conflict="drawing_no,revision").execute()
-                inserted_count += len(chunk)
-        return jsonify({"success": True, "inserted": inserted_count, "processed": len(batch)})
-    except Exception as e:
-        print(f"UPLOAD ERROR: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/export")
-def export_excel():
-    search = request.args.get("search", "").strip()
-    status = request.args.get("status", "")
-    try:
-        from concurrent.futures import ThreadPoolExecutor
-        supabase = get_client()
-        cols = "area,system,drawing_no,line_no,title,revision,issued_date,bore"
-        count_res = supabase.table(TABLE).select("id", count="exact").limit(1).execute()
-        total_count = count_res.count if hasattr(count_res, 'count') else 0
-        page_size = 1000
-        offsets = list(range(0, total_count, page_size))
-        def fetch_batch(offset):
-            q = supabase.table(TABLE).select(cols)
-            if search: q = q.or_(f"drawing_no.ilike.%{search}%,line_no.ilike.%{search}%,title.ilike.%{search}%")
-            if status: q = q.eq("revision", status)
-            return q.order("drawing_no").range(offset, offset + page_size - 1).execute().data
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(fetch_batch, offsets))
-        all_data = [item for sublist in results for item in sublist]
-        if not all_data: return jsonify({"error": "No data to export"}), 404
-        df = pd.DataFrame(all_data)
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='DrawingMaster')
-        output.seek(0)
-        filename = f"ISO_Drawing_Master_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-        return send_file(output, as_attachment=True, download_name=filename, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    except Exception as e:
-        return jsonify({"error": f"Export failed: {str(e)}"}), 500
-
-@app.route('/api/print')
-def print_drawings():
-    try:
-        from concurrent.futures import ThreadPoolExecutor
-        supabase = get_client()
+    # --- Sidebar Filters ---
+    with st.sidebar:
+        st.header("Search & Filters")
+        search_query = st.text_input("Search (No, Line, Title)", placeholder="Enter keywords...")
         
-        search = request.args.get('search', '').strip()
-        area = request.args.get('area', '').strip()
-        system = request.args.get('system', '').strip()
-        status = request.args.get('status', '').strip()
+        area_options = ["All", "MB", "YARD", "YD BLDG"]
+        area_filter = st.selectbox("Area", area_options)
+        
+        system_options = ["All", "AS", "ATM", "CCW", "CD", "DW", "FG", "FGH", "FO", "FW", "GT MISC", "HP", "HW", "IA", "LO", "LP", "N2", "PW", "RW", "SA", "SS", "ST MISC", "SW", "WWT"]
+        system_filter = st.selectbox("System", system_options)
+        
+        status_options = ["All", "C01", "C01A", "C01B"]
+        status_filter = st.selectbox("Revision Status", status_options)
+        
+        st.markdown("---")
+        st.info("Cloud-synced Repository")
 
-        target_table = "dwg_latest" if not status else TABLE
+    # --- KPI Dashboard ---
+    stats = get_cached_stats()
+    cols = st.columns(4)
+    cols[0].metric("Total Drawings", f"{stats['Total']:,}")
+    cols[1].metric("Revision C01", f"{stats['C01']:,}")
+    cols[2].metric("Revision C01A", f"{stats['C01A']:,}")
+    cols[3].metric("Revision C01B", f"{stats['C01B']:,}")
 
-        def build_print_query(base_q):
-            q = base_q
-            if search:
-                q = q.or_(f"drawing_no.ilike.%{search}%,line_no.ilike.%{search}%,title.ilike.%{search}%")
-            if area: q = q.eq('area', area)
-            if system: q = q.eq('system', system)
-            if status: q = q.eq('revision', status)
-            return q
+    st.markdown("---")
 
-        count_q = build_print_query(supabase.table(target_table).select("id", count="exact"))
-        count_res = count_q.limit(1).execute()
-        total_count = count_res.count if hasattr(count_res, 'count') else 0
+    # --- Main Content Tabs ---
+    tab_list, tab_upload, tab_export = st.tabs(["📋 Drawing List", "📤 Upload Data", "📥 Export & Reports"])
 
-        batch_size = 1000
-        offsets = [i * batch_size for i in range((total_count + batch_size - 1) // batch_size)]
-        def fetch_batch(offset):
-            q = build_print_query(supabase.table(target_table).select("area,system,drawing_no,line_no,title,revision,issued_date"))
-            return q.order('drawing_no').range(offset, offset + batch_size - 1).execute().data
+    with tab_list:
+        # Pagination handling
+        per_page = 50
+        if 'page' not in st.session_state:
+            st.session_state.page = 1
+            
+        data, total_count = fetch_data(search_query, area_filter, system_filter, status_filter, limit=per_page, offset=(st.session_state.page-1)*per_page)
+        
+        if data:
+            df = pd.DataFrame(data)
+            # Reorder and rename columns for readability
+            display_cols = {
+                "drawing_no": "Drawing No.",
+                "revision": "Rev.",
+                "area": "Area",
+                "system": "System",
+                "title": "Drawing Title",
+                "issued_date": "Issued Date"
+            }
+            available_cols = [c for c in display_cols.keys() if c in df.columns]
+            
+            # Interactive Data Table with Selection
+            selected_rows = st.dataframe(
+                df[available_cols].rename(columns=display_cols),
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row"
+            )
+            
+            # Action Panel for Selected Item
+            if selected_rows.selection.rows:
+                idx = selected_rows.selection.rows[0]
+                row = df.iloc[idx]
+                st.info(f"📍 Selected: {row['drawing_no']}")
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    file_link = str(row.get('file_link', '')).strip()
+                    if file_link:
+                        # Cloudinary PDF Streaming / Direct View
+                        cloud_url = get_cloudinary_url(file_link)
+                        st.markdown(f"[📂 Open Full Document]({cloud_url})")
+                    else:
+                        st.warning("No file link associated with this drawing.")
+                
+                with c2:
+                    if st.button("🔄 Clear Selection"):
+                        st.rerun()
+            
+            # Pagination UI
+            total_pages = (total_count + per_page - 1) // per_page
+            p_cols = st.columns([1, 2, 1])
+            if st.session_state.page > 1:
+                if p_cols[0].button("Previous"):
+                    st.session_state.page -= 1
+                    st.rerun()
+            if st.session_state.page < total_pages:
+                if p_cols[2].button("Next"):
+                    st.session_state.page += 1
+                    st.rerun()
+            p_cols[1].markdown(f"<center>Page {st.session_state.page} of {total_pages} ({total_count} records)</center>", unsafe_allow_html=True)
+        else:
+            st.warning("No data found for the given filters.")
 
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(fetch_batch, offsets))
-        all_data = [item for sublist in results for item in sublist]
+    with tab_upload:
+        st.subheader("Import Excel Data")
+        uploaded_file = st.file_uploader("Choose an Excel file", type=["xlsx", "xls"])
+        
+        if uploaded_file is not None:
+            if st.button("Process & Upload"):
+                with st.spinner("Uploading to Supabase..."):
+                    try:
+                        df_up = pd.read_excel(uploaded_file)
+                        df_up.columns = [str(c).lower().strip() for c in df_up.columns]
+                        df_up = df_up.fillna("")
+                        
+                        records = []
+                        for _, r in df_up.iterrows():
+                            dr_no = str(r.get("drawing_no", r.get("drawing_n", ""))).strip()
+                            if not dr_no: continue
+                            records.append({
+                                "drawing_no": dr_no,
+                                "line_no":    str(r.get("line_no", "")).strip(),
+                                "system":     str(r.get("system", "")).strip(),
+                                "area":       str(r.get("area", "")).strip(),
+                                "bore":       str(r.get("bore", "")).strip(),
+                                "title":      str(r.get("title", "")).strip(),
+                                "revision":   str(r.get("revision", "")).strip(),
+                                "file_link":  str(r.get("file_link", "")).strip()
+                            })
+                        
+                        if records:
+                            supabase = get_supabase()
+                            for i in range(0, len(records), 1000):
+                                chunk = records[i:i+1000]
+                                supabase.table(TABLE_ALL).upsert(chunk, on_conflict="drawing_no,revision").execute()
+                            st.success(f"Successfully uploaded {len(records)} records!")
+                        else:
+                            st.error("No valid records found in the file.")
+                    except Exception as e:
+                        st.error(f"Error during upload: {e}")
 
-        html = f"""
-        <html>
-        <head>
-            <title>IPCS Print Report</title>
-            <style>
-                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-                @page {{ size: landscape; margin: 8mm !important; }}
-                * {{ -webkit-print-color-adjust: exact !important; }}
-                body {{ font-family: 'Inter', sans-serif; margin: 15px 0; background: #f8fafc; font-size: 8px !important; }}
-                #print-main {{ background: #fff; padding: 20px; width: 96%; margin: 0 auto; box-shadow: 0 0 15px rgba(0,0,0,0.05); }}
-                h2 {{ text-align: center; margin-bottom: 10px; font-size: 15px; font-weight: 600; color: #1e293b; }}
-                .meta {{ text-align: right; margin-bottom: 5px; font-size: 7px; color: #64748b; }}
-                table {{ width: 100%; border-collapse: collapse; border: 0.5px solid #94a3b8; }}
-                th, td {{ border: 0.4px solid #cbd5e1; padding: 4px 6px; text-align: center !important; }}
-                th {{ background-color: #f1f5f9; font-weight: 600; text-transform: uppercase; }}
-                .col-dwg {{ color: #2563eb; font-weight: 500; text-decoration: none; }}
-                .badge-rev {{ padding: 1px 5px; border-radius: 3px; font-weight: 600; background-color: #f0fdf4; color: #16a34a; border: 0.2px solid #dcfce7; }}
-                #top-ctrl {{ width: 96%; margin: 10px auto; display: flex; justify-content: flex-end; align-items: center; gap: 15px; }}
-                #print-btn {{ background: #2563eb; color: #fff; border: none; padding: 6px 15px; border-radius: 4px; font-size: 11px; cursor: pointer; }}
-                @media print {{
-                    body {{ background: #fff; margin: 0; }}
-                    #print-main {{ width: 100%; padding: 0; box-shadow: none; }}
-                    #top-ctrl {{ display: none !important; }}
-                }}
-            </style>
-        </head>
-        <body>
-            <div id="top-ctrl">
-                <div style="font-size: 9px; color: #dc2626; font-weight: 500;">
-                    ⌛ 필터 적용 데이터({len(all_data)}건) 준비 중... 3.5초 후 인쇄창이 자동으로 뜹니다.
-                </div>
-                <button id="print-btn" onclick="window.print()">🖨️ 수동 인쇄 호출 (Force Print)</button>
-            </div>
-            <div id="print-main">
-                <h2>IPCS ISO Drawing Master List ({len(all_data)} Records)</h2>
-                <div class="meta">Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width:35px;">NO.</th>
-                            <th>AREA</th>
-                            <th>SYSTEM</th>
-                            <th class="col-dwg">DWG. NO.</th>
-                            <th style="white-space:nowrap;">LINE. NO.</th>
-                            <th style="min-width:180px;">DRAWING TITLE</th>
-                            <th>REV.</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        """
-        for i, d in enumerate(all_data):
-            rev = d.get('revision','')
-            html += f"""
-                <tr>
-                    <td>{i+1}</td>
-                    <td>{d.get('area','')}</td>
-                    <td>{d.get('system','')}</td>
-                    <td class="col-dwg">{d.get('drawing_no','')}</td>
-                    <td style="white-space:nowrap;">{d.get('line_no','')}</td>
-                    <td style="white-space:normal; text-align:left !important;">{d.get('title','')}</td>
-                    <td><span class="badge-rev">{rev}</span></td>
-                </tr>
-            """
-        html += f"""
-                    </tbody>
-                </table>
-            </div>
-            <script>
-                function runPrint() {{
-                    window.print();
-                    window.onafterprint = function() {{ window.close(); }};
-                }}
-                window.onload = function() {{
-                    const wait = Math.max(3500, Math.min(6000, {len(all_data)} * 1.5));
-                    setTimeout(runPrint, wait);
-                }};
-            </script>
-        </body>
-        </html>"""
-        return html
-    except Exception as e:
-        return f"Print failed: {str(e)}", 500
+    with tab_export:
+        st.subheader("Data Export")
+        if st.button("Generate Excel Master List"):
+            with st.spinner("Preparing export..."):
+                try:
+                    supabase = get_supabase()
+                    # For export, fetch everything matching filters
+                    res = supabase.table(TABLE_ALL).select("*")
+                    if search_query:
+                        res = res.or_(f"drawing_no.ilike.%{search_query}%,line_no.ilike.%{search_query}%,title.ilike.%{search_query}%")
+                    if area_filter != "All": res = res.eq("area", area_filter)
+                    if status_filter != "All": res = res.eq("revision", status_filter)
+                    
+                    all_data = res.execute().data
+                    if all_data:
+                        export_df = pd.DataFrame(all_data)
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            export_df.to_excel(writer, index=False, sheet_name='DrawingMaster')
+                        processed_data = output.getvalue()
+                        
+                        st.download_button(
+                            label="Download Excel File",
+                            data=processed_data,
+                            file_name=f"ISO_Drawing_Master_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    else:
+                        st.warning("No data found to export.")
+                except Exception as e:
+                    st.error(f"Export failed: {e}")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5100))
-    app.run(host="0.0.0.0", port=port)
+    main()
