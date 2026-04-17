@@ -170,8 +170,8 @@ def main():
     tab_list, tab_upload, tab_export = st.tabs(["📋 Drawing List", "📤 Upload Data", "📥 Export & Reports"])
 
     with tab_list:
-        # Adjusted to exactly 16 rows per view
-        per_page = 16
+        # Adjusted to exactly 18 rows per view
+        per_page = 18
         if 'page' not in st.session_state: st.session_state.page = 1
         data, total_count = fetch_data(search_query, area_filter, system_filter, status_filter, limit=per_page, offset=(st.session_state.page - 1) * per_page)
         
@@ -210,7 +210,7 @@ def main():
                 },
                 use_container_width=True,
                 hide_index=True,
-                height=570 # Optimized height for exactly 16 rows with 10px font
+                height=640 # Optimized height for exactly 18 rows
             )
 
             # Footer Pagination
