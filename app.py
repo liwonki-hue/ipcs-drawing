@@ -62,16 +62,15 @@ st.markdown("""
         [data-testid="stTabPanel"] [role="tablist"] {
             justify-content: flex-end !important;
         }
-        button[data-testid="stTab"] {
+        button[data-testid="stBasewebTab"] {
             height: 35px !important;
-            padding: 0px 10px !important;
-            font-size: 11px !important;
+            padding: 0px 15px !important;
         }
-        button[data-testid="stTab"][aria-selected="true"] {
+        button[data-testid="stBasewebTab"][aria-selected="true"] {
             color: #0b5394 !important;
             border-bottom: 2px solid #0b5394 !important;
         }
-        button[data-testid="stTab"][aria-selected="true"] p {
+        button[data-testid="stBasewebTab"][aria-selected="true"] p {
             color: #0b5394 !important;
         }
 
