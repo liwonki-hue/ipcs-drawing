@@ -18,22 +18,58 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Refined Professional Compact UI
+# Professional Dashboard Layout Refinement
 st.markdown("""
     <style>
-        .block-container { padding-top: 3.5rem !important; padding-bottom: 1rem !important; }
-        h1 { font-size: 1.8rem !important; font-weight: 700 !important; margin-bottom: 0.8rem !important; color: #1e293b; }
-        .main { background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); }
-        [data-testid="stMetric"] {
-            background: rgba(255, 255, 255, 0.7);
-            padding: 8px 12px !important;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            backdrop-filter: blur(4px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+        .block-container { 
+            padding-top: 3rem !important; 
+            padding-bottom: 0rem !important; 
+            max-width: 98% !important;
         }
-        [data-testid="stMetricLabel"] { font-size: 0.7rem !important; color: #64748b !important; margin-bottom: -10px !important; line-height: 1 !important; }
-        [data-testid="stMetricValue"] { font-size: 1.3rem !important; font-weight: 700 !important; color: #0f172a !important; line-height: 1.1 !important; }
+        
+        h1 { 
+            font-size: 1.7rem !important; 
+            font-weight: 800 !important; 
+            margin-bottom: 1rem !important; 
+            color: #0f172a;
+            letter-spacing: -0.05rem;
+        }
+        
+        .main { background: #fdfdfd; }
+        
+        /* KPI Cards - Refined Spacing & Typography */
+        [data-testid="stMetric"] {
+            background: white;
+            padding: 12px 18px !important;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+        }
+        [data-testid="stMetricLabel"] { 
+            font-size: 0.75rem !important; 
+            color: #475569 !important; 
+            margin-bottom: 4px !important; /* Fixed: Added spacing */
+            font-weight: 500 !important;
+        }
+        [data-testid="stMetricValue"] { 
+            font-size: 1.6rem !important; 
+            font-weight: 800 !important; 
+            color: #1e293b !important; 
+            line-height: 1.2 !important;
+        }
+        
+        /* Tab Styling */
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+        .stTabs [data-baseweb="tab"] {
+            padding: 8px 16px !important;
+            font-size: 0.85rem !important;
+            border-radius: 6px 6px 0 0;
+        }
+        
+        /* Data Table Height & Spacing */
+        .stDataFrame {
+            margin-top: 10px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -120,20 +156,20 @@ def main():
     tab_list, tab_upload, tab_export = st.tabs(["📋 Drawing List", "📤 Upload Data", "📥 Export & Reports"])
 
     with tab_list:
-        per_page = 50
+        # User requested 15-20 rows per view to fill the screen
+        per_page = 20
         if 'page' not in st.session_state: st.session_state.page = 1
         data, total_count = fetch_data(search_query, area_filter, system_filter, status_filter, limit=per_page, offset=(st.session_state.page - 1) * per_page)
         
         if data:
             df = pd.DataFrame(data)
             
-            # Optimization: Transform Drawing No into a clickable link
+            # Drawing Link Transformer
             def create_link_with_id(row):
                 fk = str(row.get('file_link', '')).strip()
                 dwg = str(row.get('drawing_no', '')).strip()
                 if fk:
                     url = get_cloudinary_url(fk)
-                    # We append the drawing number as a hash fragment to extract it later via regex
                     return f"{url}#{dwg}"
                 return dwg
 
@@ -146,7 +182,6 @@ def main():
                     "drawing_link": st.column_config.LinkColumn(
                         "Drawing No.",
                         help="Click to open drawing",
-                        # Extracts only the drawing number after the '#' sign
                         display_text=r"#(.+)$"
                     ),
                     "revision": "Rev.",
@@ -156,10 +191,11 @@ def main():
                     "issued_date": "Issued Date"
                 },
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                height=650 # Adjusted height to show more rows (approx 15-20)
             )
 
-            # Pagination
+            # Footer Pagination
             total_pages = (total_count + per_page - 1) // per_page
             p_cols = st.columns([1, 2, 1])
             if st.session_state.page > 1 and p_cols[0].button("Previous"):
@@ -168,7 +204,7 @@ def main():
             if st.session_state.page < total_pages and p_cols[2].button("Next"):
                 st.session_state.page += 1
                 st.rerun()
-            p_cols[1].markdown(f"<center><small>Page {st.session_state.page} of {total_pages}</small></center>", unsafe_allow_html=True)
+            p_cols[1].markdown(f"<center><small>Page {st.session_state.page} of {total_pages} ({total_count} records)</small></center>", unsafe_allow_html=True)
         else:
             st.warning("No data found.")
 
