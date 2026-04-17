@@ -156,8 +156,8 @@ def main():
     tab_list, tab_upload, tab_export = st.tabs(["📋 Drawing List", "📤 Upload Data", "📥 Export & Reports"])
 
     with tab_list:
-        # Adjusted to exactly 13 rows per view
-        per_page = 13
+        # Adjusted to exactly 14 rows per view
+        per_page = 14
         if 'page' not in st.session_state: st.session_state.page = 1
         data, total_count = fetch_data(search_query, area_filter, system_filter, status_filter, limit=per_page, offset=(st.session_state.page - 1) * per_page)
         
@@ -182,17 +182,18 @@ def main():
                     "drawing_link": st.column_config.LinkColumn(
                         "Drawing No.",
                         help="Click to open drawing",
-                        display_text=r"#(.+)$"
+                        display_text=r"#(.+)$",
+                        alignment="center"
                     ),
-                    "revision": "Rev.",
-                    "area": "Area",
-                    "system": "System",
-                    "title": "Drawing Title",
-                    "issued_date": "Issued Date"
+                    "revision": st.column_config.TextColumn("Rev.", alignment="center"),
+                    "area": st.column_config.TextColumn("Area", alignment="center"),
+                    "system": st.column_config.TextColumn("System", alignment="center"),
+                    "title": st.column_config.TextColumn("Drawing Title", alignment="center"),
+                    "issued_date": st.column_config.TextColumn("Issued Date", alignment="center")
                 },
                 use_container_width=True,
                 hide_index=True,
-                height=495 # Optimized height for exactly 13 rows
+                height=530 # Optimized height for exactly 14 rows
             )
 
             # Footer Pagination
